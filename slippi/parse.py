@@ -60,7 +60,7 @@ def _parse_event_payloads(stream):
     return (2 + this_size, sizes)
 
 
-def _parse_event(event_stream, payload_sizes):
+def _parse_event(event_stream, payload_sizes=None):
     (code,) = unpack('B', event_stream)
     log.debug(f'Event: 0x{code:x}')
 
@@ -68,10 +68,15 @@ def _parse_event(event_stream, payload_sizes):
     try: base_pos = event_stream.tell() if event_stream.seekable() else None
     except AttributeError: base_pos = None
 
-    try: size = payload_sizes[code]
-    except KeyError: raise ValueError('unexpected event type: 0x%02x' % code)
+    stream = None
+    if payload_sizes is not None:
+        try: size = payload_sizes[code]
+        except KeyError: raise ValueError('unexpected event type: 0x%02x' % code)
 
-    stream = io.BytesIO(event_stream.read(size))
+        stream = io.BytesIO(event_stream.read(size))
+    else:
+        stream = io.BytesIO(event_stream.read())
+
 
     try:
         try: event_type = EventType(code)
@@ -249,3 +254,11 @@ def parse(input: Union[BinaryIO, str, os.PathLike], handlers: Dict[ParseEvent, C
         _parse_open(input, handlers, skip_frames)
     else:
         _parse_try(input, handlers, skip_frames)
+
+
+def parse_event(eventBytes: str) -> Frame.Event:
+    """Parses a single event from a byte string, useful for live dolphin streaming
+
+    :param eventBytes: a string of bytes to parse into an event, usually the "payload" param if streaming
+    """
+    return _parse_event(eventBytes)
