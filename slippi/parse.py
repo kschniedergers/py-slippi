@@ -78,7 +78,7 @@ def _parse_event(event_stream, payload_sizes=None):
         stream = io.BytesIO(event_stream.read())
 
 
-    try:
+    # try:
         try: event_type = EventType(code)
         except ValueError: event_type = None
 
@@ -108,16 +108,16 @@ def _parse_event(event_stream, payload_sizes=None):
             event = End._parse(stream)
         else:
             event = None
-        return (1 + size, event)
-    except Exception as e:
-        # Calculate the stream position of the exception as best we can.
-        # This won't be perfect: for an invalid enum, the calculated position
-        # will be *after* the value at minimum, and may be farther than that
-        # due to `unpack`ing multiple values at once. But it's better than
-        # leaving it up to the `catch` clause in `parse`, because that will
-        # always report a position that's at the end of an event (due to
-        # `event_stream.read` above).
-        raise ParseError(str(e), pos = base_pos + stream.tell() if base_pos else None)
+        return (1 + size, event) if payload_sizes is not None else (None, event)
+    # except Exception as e:
+    #     # Calculate the stream position of the exception as best we can.
+    #     # This won't be perfect: for an invalid enum, the calculated position
+    #     # will be *after* the value at minimum, and may be farther than that
+    #     # due to `unpack`ing multiple values at once. But it's better than
+    #     # leaving it up to the `catch` clause in `parse`, because that will
+    #     # always report a position that's at the end of an event (due to
+    #     # `event_stream.read` above).
+    #     raise ParseError(str(e), pos = base_pos + stream.tell() if base_pos else None)
 
 
 def _parse_events(stream, payload_sizes, total_size, handlers, skip_frames):
