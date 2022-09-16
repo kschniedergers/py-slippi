@@ -1,4 +1,10 @@
-import enum, os, re, struct, sys
+import base64
+import io
+import enum
+import os
+import re
+import struct
+import sys
 from typing import Tuple
 
 from .log import log
@@ -53,6 +59,10 @@ def expect_bytes(expected_bytes, stream):
     read_bytes = stream.read(len(expected_bytes))
     if read_bytes != expected_bytes:
         raise Exception(f'expected {expected_bytes}, but got: {read_bytes}')
+
+
+def stream_data_to_byte_stream(data):
+    return io.BytesIO(base64.b64decode(data['payload']))
 
 
 class Base:

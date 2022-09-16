@@ -1,5 +1,6 @@
 from typing import Callable, Dict, Union
 from base64 import b64decode
+from pyee import
 import json
 import enet
 import io
@@ -13,9 +14,10 @@ from .parse import parse_event
 
 DEFAULT_IP = '0.0.0.0'
 DEFAULT_PORT = 51441
-INITIAL_CONNECT_TIMEOUT = 1000 # ms
-HANDSHAKE_TIMEOUT = 1000 # ms
-SERVICE_LOOP_TIMEOUT = 10000 # ms
+INITIAL_CONNECT_TIMEOUT = 1000  # ms
+HANDSHAKE_TIMEOUT = 1000  # ms
+SERVICE_LOOP_TIMEOUT = 10000  # ms
+
 
 class ConnectionStatus(IntEnum):
     """Status of the connection to dolphin"""
@@ -23,6 +25,7 @@ class ConnectionStatus(IntEnum):
     CONNECTING = 1
     CONNECTED = 2
     RECONNECT_WAIT = 3
+
 
 class ConnectionEvent:
     CONNECT = "connect"
@@ -32,47 +35,56 @@ class ConnectionEvent:
     DATA = "data"
     ERROR = "error"
 
+    GAME_START = 'game_start'
+    GAME_END = 'game_end'
+
+
 class DolphinMessageType:
     CONNECT_REPLY = "connect_reply"
     GAME_EVENT = "game_event"
     START_GAME = "start_game"
     END_GAME = "end_game"
 
+
 class DolphinConnection(Base):
 
-    ipAddress: str
+    ip_address: str
     port: int
-    connectionStatus: ConnectionStatus
-    gameCursor: int
+    connection_status: ConnectionStatus
+    game_cursor: int
     nickname: str
     version: str
+    handlers: Dict[ConnectionEvent, Callable[..., None]]
     # do i need union?
     peer: Union[enet.Peer, None]
     test: any
     lazy: any = []
+    lazy2: any = []
 
-    def __init__(self, ip: str = DEFAULT_IP, port: int = DEFAULT_PORT):
-        self.ipAddress = ip
+    def __init__(self, handlers: Dict[ConnectionEvent, Callable[..., None]], ip: str = DEFAULT_IP, port: int = DEFAULT_PORT):
+        self.ip_address = ip
         self.port = port
+        self.handlers = handlers
 
     # look into skip frames and if it should be added
     # look into cursor start
-    def connect(self, handlers: Dict[ConnectionEvent, Callable[..., None]]):
+    def connect(self):
 
-        ipBytes = socket.inet_aton(self.ipAddress)
+        ip_bytes = socket.inet_aton(self.ip_address)
 
         # todo configurable numbers
         self.host = enet.Host(None, 10, 0, 0)
-        self.host.connect(enet.Address(ipBytes, self.port), 10, 1337)
+        self.host.connect(enet.Address(ip_bytes, self.port), 10, 1337)
 
         # todo detect errors and probably print something
-        firstConnect = self.host.service(INITIAL_CONNECT_TIMEOUT)
-        if (firstConnect.type != enet.EVENT_TYPE_CONNECT):
+        first_connect = self.host.service(INITIAL_CONNECT_TIMEOUT)
+        if (first_connect.type != enet.EVENT_TYPE_CONNECT):
             print('something went wrong while connecting!')
             return
 
-        self.peer = firstConnect.peer
+        self._send_handler_event(ConnectionEvent.CONNECT, first_connect)
 
+        self.peer = first_connect.peer
 
         HANDSHAKE = {
             "type": "connect_request",
@@ -81,64 +93,61 @@ class DolphinConnection(Base):
         packet = enet.Packet(str.encode(json.dumps(HANDSHAKE)))
         self.peer.send(0, packet)
 
-        handshakeResponse = self.host.service(HANDSHAKE_TIMEOUT)
-
-        if handshakeResponse.type == enet.EVENT_TYPE_RECEIVE:
-            handshakeResponsePacket = json.loads(handshakeResponse.packet.data)
-            assert(handshakeResponsePacket['type'] == DolphinMessageType.CONNECT_REPLY)
-            
-            self.connectionStatus = ConnectionStatus.CONNECTED
-            self.gameCursor = handshakeResponsePacket.get('cursor')
-            self.nickname = handshakeResponsePacket.get('nick')
-            self.version = handshakeResponsePacket.get('version')
-            
-            handler = handlers.get(ConnectionEvent.CONNECT)
-            if handler:
-                handler(handshakeResponse)
-            self.test = handshakeResponse
-        elif handshakeResponse.type == enet.EVENT_TYPE_NONE:
-            print("handshake timed out!")
-        else:
-            self.test = handshakeResponse
-
-
         loopamt = 0
         while True:
             response = self.host.service(SERVICE_LOOP_TIMEOUT)
 
             if response.type == enet.EVENT_TYPE_NONE:
-                pass
-                #probably do a cooldown or summin
-            elif response.type == enet.EVENT_TYPE_DISCONNECT:
+                continue
+                # probably do a cooldown or summin
+
+            self._send_handler_event(ConnectionEvent.MESSAGE, response)
+
+            if response.type == enet.EVENT_TYPE_DISCONNECT:
                 pass
                 # disconnect stuff
             elif response.type == enet.EVENT_TYPE_RECEIVE:
                 data = json.loads(response.packet.data)
-                if data['type'] == DolphinMessageType.START_GAME:
-                    pass
-                    # start
-                elif data['type'] == DolphinMessageType.GAME_EVENT:
-                    bytes = io.BytesIO(b64decode(data['packet']['data']))
-                    event = parse_event(bytes)
-                    # frame
-                elif data['type'] == DolphinMessageType.END_GAME:
-                    pass
+
+                if data['type'] == DolphinMessageType.CONNECT_REPLY:
+                    handshake_response_packet = json.loads(
+                        response.packet.data
+                    )
+
+                    self.connection_status = ConnectionStatus.CONNECTED
+                    self.game_cursor = handshake_response_packet.get('cursor')
+                    self.nickname = handshake_response_packet.get('nick')
+                    self.version = handshake_response_packet.get('version')
+
+                    self._send_handler_event(
+                        ConnectionEvent.HANDSHAKE, response
+                    )
+                    # self.test = response
+                    continue
+
+                self._send_handler_event(ConnectionEvent.DATA)
 
             else:
                 # idk
                 pass
 
-            
-
-
-            self.lazy.append(response)
+            self.lazy2.append(response)
             loopamt += 1
             if loopamt > 1000:
                 return
 
+    def _send_handler_event(self, event: ConnectionEvent, param: any):
+        handler = self.handlers.get(event)
+        if handler:
+            handler(param)
 
+    # CONNECT = "connect"
+    # MESSAGE = "message"
+    # HANDSHAKE = "handshake"
+    # STATUS_CHANGE = "statusChange"
+    # DATA = "data"
+    # ERROR = "error"
 
-            
 
 # ########
 # import enet

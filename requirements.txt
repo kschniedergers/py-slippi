@@ -3,3 +3,4 @@ termcolor~=1.1
 mypy~=0.910
 types-termcolor~=1.1
 pyenet
+pyee
